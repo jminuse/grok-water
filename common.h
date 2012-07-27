@@ -7,7 +7,6 @@
 #define PI 3.1415926535898
 #define coulomb_k 0.138935444 //in elementary charges, angstroms, amu, and femtoseconds [8.987551787e9 N m^2 C^-2 * (1.60217646e-19)^2 in (amu*angstroms/femtoseconds^2) angstroms^2 C^-2]
 #define water_mass 18.0153
-#define abs(a)	   (((a) < 0) ? -(a) : (a))
 #define round(a)   (((a) < 0) ? (int)((a) - 0.5) : (int)((a) + 0.5))
 #define rf (((double)rand())/RAND_MAX)
 #define nrf (1 - 2*rf)
@@ -50,7 +49,7 @@ typedef struct {
     double q,m;
 } atom;
 typedef struct {
-	float acceleration, tx, ty, tz;
+	float ax, ay, az, tx, ty, tz;
 } potential_element;
 typedef struct {
 	vector r, v, a, L, o;
@@ -76,6 +75,9 @@ matrix reorthogonalize_(matrix A);
 matrix transpose_(matrix a);
 matrix inverse_(matrix t);
 double determinant_(matrix t);
+double fastsqrt(double a);
+double fastacos(double a);
+double fastatan2(double a, double b);
 
 potential_element get_water_potential(potential_element* water_potential, int ir, int t, int p, int irx, int iry, int irz);
 potential_element interpolate_water_potential(double r, double theta, double phi, double rx, double ry, double rz);
@@ -84,5 +86,5 @@ force_torque calculate_force_torque(h2o i, h2o j);
 void integrate(h2o *bodies, int i, vector total_acceleration, vector total_torque, matrix initial_inverse_moment_of_inertia, double t);
 matrix get_initial_inverse_moment_of_inertia();
 void write_xyz_file(char* name, h2o* bodies, int n_molecules, int step);
-void write_csv_file(char* name, double index, vector accel, vector torque);
+void write_csv_file(char* name, double index, vector v);
 double stopwatch();

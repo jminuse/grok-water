@@ -153,20 +153,31 @@ matrix inverse_(matrix t) {
 double determinant_(matrix t) {
 	return (t.m[0][0]*(t.m[2][2]*t.m[1][1]-t.m[2][1]*t.m[1][2]) - t.m[1][0]*(t.m[2][2]*t.m[0][1]-t.m[2][1]*t.m[0][2]) + t.m[2][0]*(t.m[1][2]*t.m[0][1]-t.m[1][1]*t.m[0][2]));
 }
+double fastsqrt(double a) { //http://en.wikipedia.org/wiki/Methods_of_computing_square_roots#Approximations_that_depend_on_IEEE_representation, modified to use doubles
+    union
+    {
+        long long int tmp;
+        double f;
+    } u;
+ 
+    u.f = a;
+ 
+    u.tmp -= 1LL << 52; /* Subtract 2^m. */
+    u.tmp >>= 1LL; /* Divide by 2. */
+    u.tmp += 1LL << (9+52); /* Add ((b + 1) / 2) * 2^m. */
+ 
+    return u.f;
+}
+double fastacos(double a) {
+	return acos(a);
+}
+double fastatan2(double a, double b) {
+	//return atan2(a,b);
+	return (fabs(a)>fabs(b))?(-a*b/(a*a + 0.28088*b*b) + PI/2*(a>0?1.0:-1.0)):(-PI/2*(a*b>0?1.0:-1.0) + PI/2*(a>0?1.0:-1.0) + a*b/(b*b + 0.28088*a*a));
+}
 potential_element get_water_potential(potential_element *water_potential, int ir, int t, int p, int irx, int iry, int irz) {
-	//wrap angles to deal with +1s from the linear interpolation.
-	if(t>=N) t -= N;
-	if(p>=N) p -= N;
-	if(irx>=N) irx -= N;
-	if(iry>=N) iry -= N;
-	if(irz>=N) irz -= N;
-	//get potential element
-	
-	//printf("%d %d %d %d %d %d\n", ir, t, p, irx, iry, irz);
-	//potential_element e = *(water_potential + ir*N*N*N*N*N + t*N*N*N*N + p*N*N*N + irx*N*N + iry*N + irz);
-	//print_((vector){e.tx,e.ty,e.tz});
-	
-	
+	assert(ir>=0 && t>=0 && p>=0 && irx>=0 && iry>=0 && irz>=0);
+	assert(ir<N && t<N && p<N && irx<N && iry<N && irz<N);
 	return *(water_potential + ir*N*N*N*N*N + t*N*N*N*N + p*N*N*N + irx*N*N + iry*N + irz);
 }
 potential_element interpolate_water_potential(double r, double theta, double phi, double rx, double ry, double rz) { //6D linear interpolation
@@ -180,57 +191,54 @@ potential_element interpolate_water_potential(double r, double theta, double phi
 		while(elements_read<N*N*N*N*N*N) {
 			elements_read += fread(water_potential+elements_read, sizeof(potential_element), 10000, input);
 		}
-		if(elements_read != N*N*N*N*N*N) {printf("File read failed, read %d elements out of %d", elements_read, N*N*N*N*N*N); exit(1);}
+		if(elements_read != N*N*N*N*N*N) {printf("File read failed, read %d elements out of %d\n", elements_read, N*N*N*N*N*N); exit(1);}
 		fclose(input);
 		
 		stopwatch(); //for timing
 	}
 
-	while(phi < 0) phi += 2*PI; //reduce to range 0 to 2*PI
-	while(phi > 2*PI) phi -= 2*PI;
-	
-	while(theta < 0) theta += 2*PI; //reduce to range 0 to 2*PI
-	while(theta > 2*PI) theta -= 2*PI;
-	
-	while(rx < 0) rx += 2*PI; //reduce to range 0 to 2*PI
-	while(rx > 2*PI) rx -= 2*PI; //reduce to range 0 to 2*PI
-	
-	while(ry < 0) ry += 2*PI; //reduce to range 0 to 2*PI
-	while(ry > 2*PI) ry -= 2*PI; //reduce to range 0 to 2*PI
-	
-	while(rz < 0) rz += 2*PI; //reduce to range 0 to 2*PI
-	while(rz > 2*PI) rz -= 2*PI; //reduce to range 0 to 2*PI
+	if(phi < 0) phi += 2*PI; //reduce to range 0 to 2*PI
+	if(theta < 0) theta += 2*PI;
+	if(rx < 0) rx += 2*PI;
+	if(ry < 0) ry += 2*PI;
+	if(rz < 0) rz += 2*PI;
 	
 	//arrange symmetry in rx,ry,rz here
 	
 	int ir = (int)((r-r_min)/r_step), t = (int)((theta-theta_min)/theta_step), p = (int)((phi-phi_min)/phi_step), irx = (int)((rx-rx_min)/rx_step), iry = (int)((ry-ry_min)/ry_step), irz = (int)((rz-rz_min)/rz_step); //low indices
 	
-	if(ir<0) return (potential_element) {0,0,0,0}; //too close
-	else if(ir>=N-1) return (potential_element) {0,0,0,0}; //too far
+	if(ir<0) return (potential_element) {0,0,0,0,0,0}; //too close
+	else if(ir>=N) return (potential_element) {0,0,0,0,0,0}; //too far
 	
-	double weights[] = { (r-r_min-ir*r_step)/r_step, (theta-theta_min-t*theta_step)/theta_step, (phi-phi_min-p*phi_step)/phi_step, (rx-rx_min-irx*rx_step)/rx_step, (ry-ry_min-iry*ry_step)/ry_step, (rz-rz_min-irz*rz_step)/rz_step }; //linear weights
-	/*int i;
-	for(i=0; i<6; i++) { //change linear weights to cosine weights
-		weights[i] = (1-cos(weights[i]*PI))/2;
-	}*/
+	float weights[2][6] = { {0,0,0,0,0,0}, { (r-r_min-ir*r_step)/r_step, (theta-theta_min-t*theta_step)/theta_step, (phi-phi_min-p*phi_step)/phi_step, (rx-rx_min-irx*rx_step)/rx_step, (ry-ry_min-iry*ry_step)/ry_step, (rz-rz_min-irz*rz_step)/rz_step } }; //linear weights
+	int i;
+	for(i=0; i<6; i++) {
+		weights[0][i] = 1-weights[1][i];
+	}
 	
-	potential_element sum = (potential_element) {0,0,0,0};
-	int a,b,c,d,e,f;
-	//Linear interpolation
-	double weight_sum = 0; //-funroll-loops?
+	potential_element sum = (potential_element) {0,0,0,0,0,0};
+	float weight_sum = 0;
+	int a,b,c,d,e,f; 
 	for(a=0; a<2; a++) { for(b=0; b<2; b++) { for(c=0; c<2; c++) { for(d=0; d<2; d++) { for(e=0; e<2; e++) { for(f=0; f<2; f++) {
-		double w = (a==0?(1-weights[0]):weights[0])*(b==0?(1-weights[1]):weights[1])*(c==0?(1-weights[2]):weights[2])*(d==0?(1-weights[3]):weights[3])*(e==0?(1-weights[4]):weights[4])*(f==0?(1-weights[5]):weights[5]);
-		if(abs(w)<1e-5) continue; //throws out all weights below 1%: since this is linear, far-off values are very low-quality.
-		potential_element current = get_water_potential(water_potential, ir+a, t+b, p+c, irx+d, iry+e, irz+f);
-		sum.acceleration += current.acceleration*w;
+		float w = weights[a][0]*weights[b][1]*weights[c][2]*weights[d][3]*weights[e][4]*weights[f][5];
+		//if(fabs(w)<0.05) continue; //throws out low weights: since this is linear, far guesses are low-quality.
+		potential_element current = get_water_potential(water_potential, (ir+a)==N?N-1:(ir+a), (t+b)==N?0:(t+b), (p+c)==N?0:(p+c), (irx+d)==N?0:(irx+d), (iry+e)==N?0:(iry+e), (irz+f)==N?0:(irz+f) ); //truncate radius and wrap angles
+		sum.ax += current.ax*w;
+		sum.ay += current.ay*w;
+		sum.az += current.az*w;
 		sum.tx += current.tx*w;
 		sum.ty += current.ty*w;
 		sum.tz += current.tz*w;
-		//printf("%.2e %.2e %.2e %.2e %.2e\n", current.acceleration, current.tx, current.ty, current.tz, w);
 		weight_sum += w;
 	}}}}}}
+	if(weight_sum==0) { //take nearest neighbor
+		int nir = round((r-r_min)/r_step), nt = round((theta-theta_min)/theta_step), np = round((phi-phi_min)/phi_step), nirx = round((rx-rx_min)/rx_step), niry = round((ry-ry_min)/ry_step), nirz = round((rz-rz_min)/rz_step);
+		return get_water_potential(water_potential, nir==N?N-1:nir, nt==N?0:nt, np==N?0:np, nirx==N?0:nirx, niry==N?0:niry, nirz==N?0:nirz ); //truncate radius and wrap angles
+	}
 	double normalize_weights = 1/weight_sum;
-	sum.acceleration *= normalize_weights;
+	sum.ax *= normalize_weights;
+	sum.ay *= normalize_weights;
+	sum.az *= normalize_weights;
 	sum.tx *= normalize_weights;
 	sum.ty *= normalize_weights;
 	sum.tz *= normalize_weights;
@@ -249,7 +257,7 @@ force_torque calculate_force_torque(h2o i, h2o j) {
 			vector r_atom_j = add_(rotate_(j.A, m0[b].r), j.r);
 			vector dr = subtract_(r_atom_i, r_atom_j);
 			double r_squared = len_squared_(dr);
-			if(r_squared > (r_max-r_step)*(r_max-r_step)) continue;
+			if(r_squared > r_max*r_max) continue;
 			double force_magnitude = coulomb_k*m0[a].q*m0[b].q/r_squared;
 			
 			if(r_squared < 10*10 && m0[a].m>15 && m0[b].m>15)
@@ -303,15 +311,15 @@ void write_xyz_file(char* name, h2o* bodies, int n_molecules, int step) {
 		int a;
 		for(a=0; a<3; a++) {
 			vector r = add_(rotate_(bodies[i].A, m0[a].r), bodies[i].r);
-			if(isnan(r.x)) { fclose(xyz); printf("NAN at step %d", step); exit(1); }
+			if(isnan(r.x)) { fclose(xyz); printf("NAN at step %d\n", step); exit(1); }
 			fprintf(xyz, "%c %f %f %f\n", m0[a].m>15?'O':'H', r.x, r.y, r.z);
 		}
 	}
 }
-void write_csv_file(char* name, double index, vector accel, vector torque) {
+void write_csv_file(char* name, double index, vector v) {
 	static FILE *csv = NULL;
 	if(csv==NULL) { csv = fopen(name, "wb"); }
-	fprintf(csv, "%e,%e,%e,%e,%e,%e,%e\n", index, accel.x, accel.y, accel.z, torque.x, torque.y, torque.z);
+	fprintf(csv, "%e,%e,%e,%e\n", index, v.x, v.y, v.z);
 }
 double stopwatch() {
 	static struct timeval start;
